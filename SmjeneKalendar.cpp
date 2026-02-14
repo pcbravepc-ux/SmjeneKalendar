@@ -637,8 +637,7 @@ void VerifySchedule() {
 // MAIN
 // ============================================================
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
-    g_hInst = hInstance;
+
 
     // Inicijalizuj na trenutni mjesec
     SYSTEMTIME st;
@@ -686,3 +685,4 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     return (int)msg.wParam;
 
 }
+
