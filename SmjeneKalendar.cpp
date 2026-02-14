@@ -1,5 +1,5 @@
 // SmjeneKalendar.cpp
-// Kompajliranje: g++ -o SmjeneKalendar.exe SmjeneKalendar.cpp -lgdi32 -lcomctl32 -mwindows
+// Kompajliranje: g++ -o SmjeneKalendar.exe SmjeneKalendar.cpp -lgdi32 -lcomctl32 -mwindows -static -municode
 // Ili u MSVC: cl SmjeneKalendar.cpp user32.lib gdi32.lib comctl32.lib
 
 #ifndef UNICODE
@@ -40,8 +40,8 @@ COLORREF CLR_SLOBODAN = RGB(50, 180, 50);    // Zelena - slobodan
 COLORREF CLR_HEADER   = RGB(40, 40, 40);     // Tamna - header
 COLORREF CLR_BG       = RGB(30, 30, 30);     // Pozadina
 COLORREF CLR_CELL_BG  = RGB(50, 50, 50);     // Ćelija pozadina
-COLORREF CLR_TODAY     = RGB(255, 215, 0);   // Zlatna - danas
-COLORREF CLR_TEXT     = RGB(255, 255, 255);   // Bijeli tekst
+COLORREF CLR_TODAY    = RGB(255, 215, 0);    // Zlatna - danas
+COLORREF CLR_TEXT     = RGB(255, 255, 255);  // Bijeli tekst
 COLORREF CLR_WEEKEND  = RGB(80, 60, 60);     // Vikend pozadina
 
 int g_currentMonth = 0; // 0-11
@@ -606,10 +606,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 // ============================================================
-// TOOLTIP za hover nad danima - MouseMove handling
+// VERIFIKACIJA
 // ============================================================
 
-// Provjeri verifikaciju rasporeda za prvih 5 dana
 void VerifySchedule() {
     // 01.02.2026 = Noćna  ✓
     // 02.02.2026 = Slobodan ✓
@@ -634,10 +633,11 @@ void VerifySchedule() {
 }
 
 // ============================================================
-// MAIN
+// MAIN ENTRY POINT
 // ============================================================
 
-
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
+    g_hInst = hInstance;
 
     // Inicijalizuj na trenutni mjesec
     SYSTEMTIME st;
@@ -683,6 +683,4 @@ void VerifySchedule() {
         DispatchMessageW(&msg);
     }
     return (int)msg.wParam;
-
 }
-
