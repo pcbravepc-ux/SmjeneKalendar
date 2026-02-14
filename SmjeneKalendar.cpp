@@ -29,29 +29,27 @@ HWND g_hMainWnd;
 HWND g_hMonthCombo, g_hYearCombo;
 HWND g_hPrevBtn, g_hNextBtn;
 HWND g_hStatsLabel;
-HWND g_hLegendLabel;
 HWND g_hTodayBtn;
 
 // Boje
-COLORREF CLR_NOCNA    = RGB(70, 70, 180);    // Plava - noćna
-COLORREF CLR_JUTARNJA = RGB(255, 165, 0);    // Narandžasta - jutarnja
-COLORREF CLR_SLOBODAN = RGB(50, 180, 50);    // Zelena - slobodan
-COLORREF CLR_HEADER   = RGB(40, 40, 40);     // Tamna - header
-COLORREF CLR_BG       = RGB(30, 30, 30);     // Pozadina
-COLORREF CLR_CELL_BG  = RGB(50, 50, 50);     // Ćelija pozadina
-COLORREF CLR_TODAY    = RGB(255, 215, 0);    // Zlatna - danas
-COLORREF CLR_TEXT     = RGB(255, 255, 255);  // Bijeli tekst
-COLORREF CLR_WEEKEND  = RGB(80, 60, 60);     // Vikend pozadina
+COLORREF CLR_NOCNA    = RGB(70, 70, 180);    
+COLORREF CLR_JUTARNJA = RGB(255, 165, 0);    
+COLORREF CLR_SLOBODAN = RGB(50, 180, 50);    
+COLORREF CLR_HEADER   = RGB(40, 40, 40);     
+COLORREF CLR_BG       = RGB(30, 30, 30);     
+COLORREF CLR_CELL_BG  = RGB(50, 50, 50);     
+COLORREF CLR_TODAY    = RGB(255, 215, 0);    
+COLORREF CLR_TEXT     = RGB(255, 255, 255);  
+COLORREF CLR_WEEKEND  = RGB(80, 60, 60);     
 
 int g_currentMonth = 0; // 0-11
 int g_currentYear = 2026;
 
-// Referentna tačka: 01.02.2026 = Noćna (index 0 u ciklusu)
 struct RefDate {
     int day = 1;
-    int month = 2;
+    int month = 2; 
     int year = 2026;
-    int cycleIndex = 0;
+    int cycleIndex = 0; 
 };
 
 RefDate g_ref;
@@ -114,21 +112,21 @@ long long DaysBetween(int d1, int m1, int y1, int d2, int m2, int y2) {
 
 SmjenaType GetSmjena(int day, int month, int year) {
     long long diff = DaysBetween(day, month, year, g_ref.day, g_ref.month, g_ref.year);
-    int idx = (int)(((diff % 5) + 5) % 5);
+    int idx = (int)(((diff % 5) + 5) % 5); 
     idx = (idx + g_ref.cycleIndex) % 5;
     return (SmjenaType)idx;
 }
 
-int DayOfWeek(int day, int month, int year) {
-    if (month < 3) {
-        month += 12;
-        year--;
-    }
-    int k = year % 100;
-    int j = year / 100;
-    int h = (day + (13 * (month + 1)) / 5 + k + k / 4 + j / 4 - 2 * j) % 7;
-    int dow = ((h + 5) % 7);
-    return dow;
+// NOVA ISPRAVLJENA FUNKCIJA: 0=Ponedjeljak, 6=Nedjelja
+int DayOfWeek(int d, int m, int y) {
+    // Tomohiko Sakamoto algoritam
+    static int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    if (m < 3) y -= 1;
+    int dow = (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
+    // dow: 0=Ned, 1=Pon, 2=Uto, 3=Sri, 4=Cet, 5=Pet, 6=Sub
+    // Pretvori u: 0=Pon, 1=Uto, 2=Sri, 3=Cet, 4=Pet, 5=Sub, 6=Ned
+    if (dow == 0) return 6; // Nedjelja -> 6
+    return dow - 1; // Pon=0, Uto=1, Sri=2, Cet=3, Pet=4, Sub=5
 }
 
 COLORREF GetSmjenaColor(SmjenaType s) {
@@ -188,7 +186,7 @@ void UpdateStats(HWND hwnd) {
 
     wchar_t buf[512];
     swprintf(buf, 512,
-        L"📊 Statistika za %s %d:    🔵 Noćne: %d    🟠 Jutarnje: %d    🟢 Slobodni: %d    📋 Radnih: %d",
+        L"Statistika za %s %d:  🔵Noćne:%d  🟠Jutarnje:%d  🟢Slobodni:%d  📋Radnih:%d",
         monthNames[g_currentMonth], year,
         nocnaCount, jutarnjaCount, slobodanCount, radniDani
     );
@@ -214,9 +212,9 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     HFONT hFontBold = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontBig = CreateFontW(22, 0, 0, 0, FW_BOLD, 0, 0, 0,
+    HFONT hFontBig = CreateFontW(20, 0, 0, 0, FW_BOLD, 0, 0, 0,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontSmall = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+    HFONT hFontSmall = CreateFontW(11, 0, 0, 0, FW_NORMAL, 0, 0, 0,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
 
     SetBkMode(memDC, TRANSPARENT);
@@ -224,10 +222,11 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
     int month = g_currentMonth + 1;
     int year = g_currentYear;
 
-    int startX = 30;
+    int startX = 20;
     int startY = 80;
-    int cellW = (width - 60) / 7;
-    int cellH = 70;
+    int cellW = (width - 40) / 7;
+    if (cellW < 50) cellW = 50;
+    int cellH = 60;
 
     // Zaglavlje dana
     SelectObject(memDC, hFontBold);
@@ -236,7 +235,7 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         r.left = startX + i * cellW;
         r.top = startY;
         r.right = r.left + cellW;
-        r.bottom = r.top + 30;
+        r.bottom = r.top + 25;
 
         HBRUSH hdrBrush = CreateSolidBrush(CLR_HEADER);
         FillRect(memDC, &r, hdrBrush);
@@ -248,22 +247,29 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         SelectObject(memDC, oldPen);
         DeleteObject(pen);
 
-        SetTextColor(memDC, (i >= 5) ? RGB(255, 100, 100) : CLR_TEXT);
+        SetTextColor(memDC, (i >= 5) ? RGB(255, 120, 120) : CLR_TEXT);
         DrawTextW(memDC, dayHeaders[i], -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
-    startY += 30;
+    startY += 25;
 
-    int firstDow = DayOfWeek(1, month, year);
+    int firstDow = DayOfWeek(1, month, year); // 0=Pon, 6=Ned
     int daysInMonth = DaysInMonth(month, year);
 
-    int row = 0, col = firstDow;
+    int row = 0;
+    int col = firstDow;
 
     for (int day = 1; day <= daysInMonth; day++) {
+        // Ako smo prešli u novi red
+        if (col >= 7) {
+            col = 0;
+            row++;
+        }
+
         SmjenaType smjena = GetSmjena(day, month, year);
         COLORREF smjColor = GetSmjenaColor(smjena);
         bool today = IsToday(day, month, year);
-        bool weekend = (col >= 5);
+        bool weekend = (col >= 5); // Sub=5, Ned=6
 
         RECT cellRect;
         cellRect.left = startX + col * cellW;
@@ -271,36 +277,40 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         cellRect.right = cellRect.left + cellW;
         cellRect.bottom = cellRect.top + cellH;
 
+        // Pozadina ćelije
         COLORREF bgColor = weekend ? CLR_WEEKEND : CLR_CELL_BG;
         HBRUSH cellBrush = CreateSolidBrush(bgColor);
         FillRect(memDC, &cellRect, cellBrush);
         DeleteObject(cellBrush);
 
+        // Smjena traka
         RECT smjRect;
-        smjRect.left = cellRect.left + 3;
-        smjRect.top = cellRect.bottom - 22;
-        smjRect.right = cellRect.right - 3;
-        smjRect.bottom = cellRect.bottom - 3;
+        smjRect.left = cellRect.left + 2;
+        smjRect.top = cellRect.bottom - 20;
+        smjRect.right = cellRect.right - 2;
+        smjRect.bottom = cellRect.bottom - 2;
 
         HBRUSH smjBrush = CreateSolidBrush(smjColor);
+        FillRect(memDC, &smjRect, smjBrush);
+        DeleteObject(smjBrush);
+
         HPEN smjPen = CreatePen(PS_SOLID, 1, smjColor);
         HPEN oldP2 = (HPEN)SelectObject(memDC, smjPen);
-        HBRUSH oldB2 = (HBRUSH)SelectObject(memDC, smjBrush);
-        RoundRect(memDC, smjRect.left, smjRect.top, smjRect.right, smjRect.bottom, 6, 6);
+        RoundRect(memDC, smjRect.left, smjRect.top, smjRect.right, smjRect.bottom, 4, 4);
         SelectObject(memDC, oldP2);
-        SelectObject(memDC, oldB2);
-        DeleteObject(smjBrush);
         DeleteObject(smjPen);
 
+        // Tekst smjene
         SelectObject(memDC, hFontSmall);
         SetTextColor(memDC, RGB(255, 255, 255));
         DrawTextW(memDC, GetSmjenaName(smjena), -1, &smjRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
+        // Broj dana
         wchar_t dayStr[8];
         swprintf(dayStr, 8, L"%d", day);
         RECT dayRect = cellRect;
-        dayRect.top += 4;
-        dayRect.bottom = smjRect.top;
+        dayRect.top += 3;
+        dayRect.bottom = smjRect.top - 2;
 
         if (today) {
             int cx = (dayRect.left + dayRect.right) / 2;
@@ -309,7 +319,7 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
             HPEN todayPen = CreatePen(PS_SOLID, 2, CLR_TODAY);
             HPEN oldP3 = (HPEN)SelectObject(memDC, todayPen);
             HBRUSH oldB3 = (HBRUSH)SelectObject(memDC, todayBrush);
-            Ellipse(memDC, cx - 15, cy - 13, cx + 15, cy + 13);
+            Ellipse(memDC, cx - 14, cy - 12, cx + 14, cy + 12);
             SelectObject(memDC, oldP3);
             SelectObject(memDC, oldB3);
             DeleteObject(todayBrush);
@@ -323,43 +333,31 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         }
         DrawTextW(memDC, dayStr, -1, &dayRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
+        // Okvir ćelije
         HPEN borderPen = CreatePen(PS_SOLID, 1, today ? CLR_TODAY : RGB(70, 70, 70));
         HPEN oldP4 = (HPEN)SelectObject(memDC, borderPen);
         HBRUSH nullBrush = (HBRUSH)GetStockObject(NULL_BRUSH);
         HBRUSH oldB4 = (HBRUSH)SelectObject(memDC, nullBrush);
-
-        if (today) {
-            HPEN todayBorderPen = CreatePen(PS_SOLID, 3, CLR_TODAY);
-            SelectObject(memDC, todayBorderPen);
-            Rectangle(memDC, cellRect.left, cellRect.top, cellRect.right, cellRect.bottom);
-            SelectObject(memDC, oldP4);
-            DeleteObject(todayBorderPen);
-        } else {
-            Rectangle(memDC, cellRect.left, cellRect.top, cellRect.right, cellRect.bottom);
-            SelectObject(memDC, oldP4);
-        }
+        Rectangle(memDC, cellRect.left, cellRect.top, cellRect.right, cellRect.bottom);
+        SelectObject(memDC, oldP4);
         SelectObject(memDC, oldB4);
         DeleteObject(borderPen);
 
         col++;
-        if (col >= 7) {
-            col = 0;
-            row++;
-        }
     }
 
-    int legendY = startY + (row + (col > 0 ? 1 : 0)) * cellH + 15;
-
-    SelectObject(memDC, hFontBold);
+    // Legenda
+    int legendY = startY + (row + 1) * cellH + 10;
+    SelectObject(memDC, hFont);
 
     struct LegendItem {
         COLORREF color;
         const wchar_t* text;
     };
     LegendItem legends[] = {
-        { CLR_NOCNA, L"  Noćna smjena  " },
-        { CLR_JUTARNJA, L"  Jutarnja smjena  " },
-        { CLR_SLOBODAN, L"  Slobodan dan  " },
+        { CLR_NOCNA, L"  Noćna  " },
+        { CLR_JUTARNJA, L"  Jutarnja  " },
+        { CLR_SLOBODAN, L"  Slobodan  " },
         { CLR_TODAY, L"  Danas  " }
     };
 
@@ -368,14 +366,14 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         RECT lr;
         lr.left = legendX;
         lr.top = legendY;
-        lr.right = legendX + 18;
-        lr.bottom = legendY + 18;
+        lr.right = legendX + 16;
+        lr.bottom = legendY + 16;
 
         HBRUSH lb = CreateSolidBrush(legends[i].color);
         HPEN lp = CreatePen(PS_SOLID, 1, legends[i].color);
         HPEN oldLP = (HPEN)SelectObject(memDC, lp);
         HBRUSH oldLB = (HBRUSH)SelectObject(memDC, lb);
-        RoundRect(memDC, lr.left, lr.top, lr.right, lr.bottom, 4, 4);
+        RoundRect(memDC, lr.left, lr.top, lr.right, lr.bottom, 3, 3);
         SelectObject(memDC, oldLP);
         SelectObject(memDC, oldLB);
         DeleteObject(lb);
@@ -383,15 +381,15 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
 
         SetTextColor(memDC, CLR_TEXT);
         RECT tr;
-        tr.left = legendX + 22;
+        tr.left = legendX + 20;
         tr.top = legendY;
-        tr.right = tr.left + 200;
-        tr.bottom = legendY + 18;
+        tr.right = tr.left + 150;
+        tr.bottom = legendY + 16;
         DrawTextW(memDC, legends[i].text, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         SIZE sz;
         GetTextExtentPoint32W(memDC, legends[i].text, (int)wcslen(legends[i].text), &sz);
-        legendX += 22 + sz.cx + 20;
+        legendX += 20 + sz.cx + 15;
     }
 
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
@@ -582,7 +580,7 @@ void VerifySchedule() {
 }
 
 // ============================================================
-// ENTRY POINT - OVDJE JE RAZLIKA: Koristimo WinMain (ne wWinMain)
+// MAIN
 // ============================================================
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
@@ -618,7 +616,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         L"📅 Raspored Smjena - Kalendar",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        850, 700,
+        900, 750,
         NULL, NULL, hInstance, NULL
     );
 
