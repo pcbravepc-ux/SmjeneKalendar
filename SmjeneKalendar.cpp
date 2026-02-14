@@ -42,32 +42,33 @@ COLORREF CLR_TODAY    = RGB(255, 215, 0);
 COLORREF CLR_TEXT     = RGB(255, 255, 255);  
 COLORREF CLR_WEEKEND  = RGB(80, 60, 60);     
 
-int g_currentMonth = 0; // 0-11
+int g_currentMonth = 0;
 int g_currentYear = 2026;
 
+// Referentna tačka: 01.02.2026 = JUTARNJA (index 0)
+// NOVI CIKLUS: Jutarnja(0) → Noćna(1) → Slobodan(2) → Slobodan(3) → repeat
 struct RefDate {
     int day = 1;
-    int month = 2; 
+    int month = 2;
     int year = 2026;
-    int cycleIndex = 0; 
+    int cycleIndex = 0; // 0 = Jutarnja
 };
 
 RefDate g_ref;
 
+// NOVI ENUM - 4-dnevni ciklus
 enum SmjenaType {
-    NOCNA_SMJENA = 0,
-    SLOBODAN_1,
-    SLOBODAN_2,
-    JUTARNJA_SMJENA,
-    NOCNA_SMJENA_2
+    JUTARNJA_SMJENA = 0,   // 0
+    NOCNA_SMJENA,          // 1
+    SLOBODAN_1,            // 2
+    SLOBODAN_2             // 3
 };
 
 const wchar_t* smjenaNames[] = {
-    L"NOĆNA",
-    L"SLOBODAN",
-    L"SLOBODAN",
-    L"JUTARNJA",
-    L"NOĆNA"
+    L"JUTARNJA",           // 0
+    L"NOĆNA",              // 1
+    L"SLOBODAN",           // 2
+    L"SLOBODAN"            // 3
 };
 
 const wchar_t* monthNames[] = {
@@ -110,29 +111,27 @@ long long DaysBetween(int d1, int m1, int y1, int d2, int m2, int y2) {
     return toJDN(d1, m1, y1) - toJDN(d2, m2, y2);
 }
 
+// NOVA LOGIKA - ciklus od 4 dana
 SmjenaType GetSmjena(int day, int month, int year) {
     long long diff = DaysBetween(day, month, year, g_ref.day, g_ref.month, g_ref.year);
-    int idx = (int)(((diff % 5) + 5) % 5); 
-    idx = (idx + g_ref.cycleIndex) % 5;
+    int idx = (int)(((diff % 4) + 4) % 4); // MODULO 4, uvijek pozitivan
+    idx = (idx + g_ref.cycleIndex) % 4;
     return (SmjenaType)idx;
 }
 
-// NOVA ISPRAVLJENA FUNKCIJA: 0=Ponedjeljak, 6=Nedjelja
+// 0=Ponedjeljak, 6=Nedjelja
 int DayOfWeek(int d, int m, int y) {
-    // Tomohiko Sakamoto algoritam
     static int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
     if (m < 3) y -= 1;
     int dow = (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
-    // dow: 0=Ned, 1=Pon, 2=Uto, 3=Sri, 4=Cet, 5=Pet, 6=Sub
-    // Pretvori u: 0=Pon, 1=Uto, 2=Sri, 3=Cet, 4=Pet, 5=Sub, 6=Ned
-    if (dow == 0) return 6; // Nedjelja -> 6
-    return dow - 1; // Pon=0, Uto=1, Sri=2, Cet=3, Pet=4, Sub=5
+    // dow: 0=Ned, 1=Pon... pretvori u 0=Pon
+    if (dow == 0) return 6;
+    return dow - 1;
 }
 
 COLORREF GetSmjenaColor(SmjenaType s) {
     switch (s) {
         case NOCNA_SMJENA:
-        case NOCNA_SMJENA_2:
             return CLR_NOCNA;
         case JUTARNJA_SMJENA:
             return CLR_JUTARNJA;
@@ -169,7 +168,6 @@ void UpdateStats(HWND hwnd) {
         SmjenaType s = GetSmjena(d, month, year);
         switch (s) {
             case NOCNA_SMJENA:
-            case NOCNA_SMJENA_2:
                 nocnaCount++;
                 radniDani++;
                 break;
@@ -186,9 +184,9 @@ void UpdateStats(HWND hwnd) {
 
     wchar_t buf[512];
     swprintf(buf, 512,
-        L"Statistika za %s %d:  🔵Noćne:%d  🟠Jutarnje:%d  🟢Slobodni:%d  📋Radnih:%d",
+        L"Statistika za %s %d:  🟠Jutarnje:%d  🔵Noćne:%d  🟢Slobodni:%d  📋Radnih:%d",
         monthNames[g_currentMonth], year,
-        nocnaCount, jutarnjaCount, slobodanCount, radniDani
+        jutarnjaCount, nocnaCount, slobodanCount, radniDani
     );
     SetWindowTextW(g_hStatsLabel, buf);
 }
@@ -253,14 +251,13 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
 
     startY += 25;
 
-    int firstDow = DayOfWeek(1, month, year); // 0=Pon, 6=Ned
+    int firstDow = DayOfWeek(1, month, year);
     int daysInMonth = DaysInMonth(month, year);
 
     int row = 0;
     int col = firstDow;
 
     for (int day = 1; day <= daysInMonth; day++) {
-        // Ako smo prešli u novi red
         if (col >= 7) {
             col = 0;
             row++;
@@ -269,7 +266,7 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         SmjenaType smjena = GetSmjena(day, month, year);
         COLORREF smjColor = GetSmjenaColor(smjena);
         bool today = IsToday(day, month, year);
-        bool weekend = (col >= 5); // Sub=5, Ned=6
+        bool weekend = (col >= 5);
 
         RECT cellRect;
         cellRect.left = startX + col * cellW;
@@ -277,7 +274,6 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         cellRect.right = cellRect.left + cellW;
         cellRect.bottom = cellRect.top + cellH;
 
-        // Pozadina ćelije
         COLORREF bgColor = weekend ? CLR_WEEKEND : CLR_CELL_BG;
         HBRUSH cellBrush = CreateSolidBrush(bgColor);
         FillRect(memDC, &cellRect, cellBrush);
@@ -355,8 +351,8 @@ void DrawCalendar(HWND hwnd, HDC hdc) {
         const wchar_t* text;
     };
     LegendItem legends[] = {
-        { CLR_NOCNA, L"  Noćna  " },
         { CLR_JUTARNJA, L"  Jutarnja  " },
+        { CLR_NOCNA, L"  Noćna  " },
         { CLR_SLOBODAN, L"  Slobodan  " },
         { CLR_TODAY, L"  Danas  " }
     };
@@ -561,21 +557,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
+// ============================================================
+// VERIFIKACIJA - provjera novog 4-dnevnog ciklusa
+// ============================================================
+
 void VerifySchedule() {
+    // NOVI CIKLUS: 01.02.2026 = Jutarnja
+    // 01.02 = Jutarnja (0)
+    // 02.02 = Noćna (1)
+    // 03.02 = Slobodan (2)
+    // 04.02 = Slobodan (3)
+    // 05.02 = Jutarnja (0)
+    
     SmjenaType s1 = GetSmjena(1, 2, 2026);
     SmjenaType s2 = GetSmjena(2, 2, 2026);
     SmjenaType s3 = GetSmjena(3, 2, 2026);
     SmjenaType s4 = GetSmjena(4, 2, 2026);
     SmjenaType s5 = GetSmjena(5, 2, 2026);
 
-    bool ok = (s1 == NOCNA_SMJENA || s1 == NOCNA_SMJENA_2) &&
-              (s2 == SLOBODAN_1 || s2 == SLOBODAN_2) &&
-              (s3 == SLOBODAN_1 || s3 == SLOBODAN_2) &&
-              (s4 == JUTARNJA_SMJENA) &&
-              (s5 == NOCNA_SMJENA || s5 == NOCNA_SMJENA_2);
+    bool ok = (s1 == JUTARNJA_SMJENA) &&
+              (s2 == NOCNA_SMJENA) &&
+              (s3 == SLOBODAN_1) &&
+              (s4 == SLOBODAN_2) &&
+              (s5 == JUTARNJA_SMJENA);
 
     if (!ok) {
-        MessageBoxW(NULL, L"GREŠKA: Raspored se ne poklapa sa zadanim!", L"Greška", MB_OK | MB_ICONERROR);
+        wchar_t buf[256];
+        swprintf(buf, 256, L"Provjera:\n01.02=%d\n02.02=%d\n03.02=%d\n04.02=%d\n05.02=%d", 
+            s1, s2, s3, s4, s5);
+        MessageBoxW(NULL, buf, L"Debug", MB_OK);
     }
 }
 
@@ -613,7 +623,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hMainWnd = CreateWindowExW(
         0, L"SmjeneKalendarClass",
-        L"📅 Raspored Smjena - Kalendar",
+        L"📅 Raspored Smjena - Kalendar (J-N-S-S)",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
         900, 750,
