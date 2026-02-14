@@ -1,0 +1,687 @@
+// SmjeneKalendar.cpp
+// Kompajliranje: g++ -o SmjeneKalendar.exe SmjeneKalendar.cpp -lgdi32 -lcomctl32 -mwindows
+// Ili u MSVC: cl SmjeneKalendar.cpp user32.lib gdi32.lib comctl32.lib
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
+#include <windows.h>
+#include <commctrl.h>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <ctime>
+#include <map>
+#include <algorithm>
+
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
+
+// ============================================================
+// GLOBALNE VARIJABLE
+// ============================================================
+HINSTANCE g_hInst;
+HWND g_hMainWnd;
+HWND g_hMonthCombo, g_hYearCombo;
+HWND g_hPrevBtn, g_hNextBtn;
+HWND g_hStatsLabel;
+HWND g_hLegendLabel;
+HWND g_hTodayBtn;
+
+// Boje
+COLORREF CLR_NOCNA    = RGB(70, 70, 180);    // Plava - noćna
+COLORREF CLR_JUTARNJA = RGB(255, 165, 0);    // Narandžasta - jutarnja
+COLORREF CLR_SLOBODAN = RGB(50, 180, 50);    // Zelena - slobodan
+COLORREF CLR_HEADER   = RGB(40, 40, 40);     // Tamna - header
+COLORREF CLR_BG       = RGB(30, 30, 30);     // Pozadina
+COLORREF CLR_CELL_BG  = RGB(50, 50, 50);     // Ćelija pozadina
+COLORREF CLR_TODAY     = RGB(255, 215, 0);   // Zlatna - danas
+COLORREF CLR_TEXT     = RGB(255, 255, 255);   // Bijeli tekst
+COLORREF CLR_WEEKEND  = RGB(80, 60, 60);     // Vikend pozadina
+
+int g_currentMonth = 0; // 0-11
+int g_currentYear = 2026;
+
+// Referentna tačka: 01.02.2026 = Noćna (index 0 u ciklusu)
+// Ciklus: Noćna, Slobodan, Slobodan, Jutarnja, Noćna
+struct RefDate {
+    int day = 1;
+    int month = 2; // 1-12
+    int year = 2026;
+    int cycleIndex = 0; // 0 = Noćna
+};
+
+RefDate g_ref;
+
+enum SmjenaType {
+    NOCNA_SMJENA = 0,
+    SLOBODAN_1,
+    SLOBODAN_2,
+    JUTARNJA_SMJENA,
+    NOCNA_SMJENA_2
+};
+
+const wchar_t* smjenaNames[] = {
+    L"NOĆNA",
+    L"SLOBODAN",
+    L"SLOBODAN",
+    L"JUTARNJA",
+    L"NOĆNA"
+};
+
+const wchar_t* monthNames[] = {
+    L"Januar", L"Februar", L"Mart", L"April",
+    L"Maj", L"Juni", L"Juli", L"August",
+    L"Septembar", L"Oktobar", L"Novembar", L"Decembar"
+};
+
+const wchar_t* dayHeaders[] = {
+    L"PON", L"UTO", L"SRI", L"ČET", L"PET", L"SUB", L"NED"
+};
+
+// ============================================================
+// POMOĆNE FUNKCIJE
+// ============================================================
+
+bool IsLeapYear(int year) {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+int DaysInMonth(int month, int year) {
+    // month: 1-12
+    int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month == 2 && IsLeapYear(year)) return 29;
+    return days[month - 1];
+}
+
+// Izračunaj broj dana između dva datuma (date - ref)
+// Pozitivan ako je date nakon ref, negativan ako je prije
+long long DaysBetween(int d1, int m1, int y1, int d2, int m2, int y2) {
+    // Koristimo formulu za Julian Day Number
+    auto toJDN = [](int d, int m, int y) -> long long {
+        long long a = (14 - m) / 12;
+        long long yy = y + 4800 - a;
+        long long mm = m + 12 * a - 3;
+        return d + (153 * mm + 2) / 5 + 365 * yy + yy / 4 - yy / 100 + yy / 400 - 32045;
+    };
+    return toJDN(d1, m1, y1) - toJDN(d2, m2, y2);
+}
+
+SmjenaType GetSmjena(int day, int month, int year) {
+    long long diff = DaysBetween(day, month, year, g_ref.day, g_ref.month, g_ref.year);
+    int idx = (int)(((diff % 5) + 5) % 5); // Uvijek pozitivan mod
+    idx = (idx + g_ref.cycleIndex) % 5;
+    return (SmjenaType)idx;
+}
+
+// Dan u sedmici: 0=Pon, 1=Uto, ..., 6=Ned
+int DayOfWeek(int day, int month, int year) {
+    // Zellerova formula prilagođena
+    if (month < 3) {
+        month += 12;
+        year--;
+    }
+    int k = year % 100;
+    int j = year / 100;
+    int h = (day + (13 * (month + 1)) / 5 + k + k / 4 + j / 4 - 2 * j) % 7;
+    // h: 0=Sub, 1=Ned, 2=Pon, 3=Uto, 4=Sri, 5=Čet, 6=Pet
+    int dow = ((h + 5) % 7); // 0=Pon, 6=Ned
+    return dow;
+}
+
+COLORREF GetSmjenaColor(SmjenaType s) {
+    switch (s) {
+        case NOCNA_SMJENA:
+        case NOCNA_SMJENA_2:
+            return CLR_NOCNA;
+        case JUTARNJA_SMJENA:
+            return CLR_JUTARNJA;
+        case SLOBODAN_1:
+        case SLOBODAN_2:
+            return CLR_SLOBODAN;
+    }
+    return CLR_CELL_BG;
+}
+
+const wchar_t* GetSmjenaName(SmjenaType s) {
+    return smjenaNames[(int)s];
+}
+
+bool IsToday(int d, int m, int y) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    return (d == st.wDay && m == st.wMonth && y == st.wYear);
+}
+
+// ============================================================
+// CRTANJE KALENDARA
+// ============================================================
+
+#define ID_PREV_BTN   1001
+#define ID_NEXT_BTN   1002
+#define ID_MONTH_CMB  1003
+#define ID_YEAR_CMB   1004
+#define ID_TODAY_BTN  1005
+
+void UpdateStats(HWND hwnd) {
+    int month = g_currentMonth + 1; // 1-12
+    int year = g_currentYear;
+    int daysInM = DaysInMonth(month, year);
+
+    int nocnaCount = 0, jutarnjaCount = 0, slobodanCount = 0;
+    int radniDani = 0;
+
+    for (int d = 1; d <= daysInM; d++) {
+        SmjenaType s = GetSmjena(d, month, year);
+        switch (s) {
+            case NOCNA_SMJENA:
+            case NOCNA_SMJENA_2:
+                nocnaCount++;
+                radniDani++;
+                break;
+            case JUTARNJA_SMJENA:
+                jutarnjaCount++;
+                radniDani++;
+                break;
+            case SLOBODAN_1:
+            case SLOBODAN_2:
+                slobodanCount++;
+                break;
+        }
+    }
+
+    wchar_t buf[512];
+    swprintf(buf, 512,
+        L"📊 Statistika za %s %d:\n"
+        L"   🔵 Noćne smjene: %d    🟠 Jutarnje smjene: %d    🟢 Slobodni dani: %d    "
+        L"📋 Ukupno radnih: %d",
+        monthNames[g_currentMonth], year,
+        nocnaCount, jutarnjaCount, slobodanCount, radniDani
+    );
+    SetWindowTextW(g_hStatsLabel, buf);
+}
+
+void DrawCalendar(HWND hwnd, HDC hdc) {
+    RECT clientRect;
+    GetClientRect(hwnd, &clientRect);
+
+    int width = clientRect.right - clientRect.left;
+    int height = clientRect.bottom - clientRect.top;
+
+    // Double buffer
+    HDC memDC = CreateCompatibleDC(hdc);
+    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, width, height);
+    HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);
+
+    // Pozadina
+    HBRUSH bgBrush = CreateSolidBrush(CLR_BG);
+    FillRect(memDC, &clientRect, bgBrush);
+    DeleteObject(bgBrush);
+
+    // Font
+    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontBold = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontBig = CreateFontW(22, 0, 0, 0, FW_BOLD, 0, 0, 0,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontSmall = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+
+    SetBkMode(memDC, TRANSPARENT);
+
+    int month = g_currentMonth + 1;
+    int year = g_currentYear;
+
+    // Kalendar grid
+    int startX = 30;
+    int startY = 80;
+    int cellW = (width - 60) / 7;
+    int cellH = 70;
+
+    // Zaglavlje dana
+    SelectObject(memDC, hFontBold);
+    for (int i = 0; i < 7; i++) {
+        RECT r;
+        r.left = startX + i * cellW;
+        r.top = startY;
+        r.right = r.left + cellW;
+        r.bottom = r.top + 30;
+
+        HBRUSH hdrBrush = CreateSolidBrush(CLR_HEADER);
+        FillRect(memDC, &r, hdrBrush);
+        DeleteObject(hdrBrush);
+
+        // Okvir
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
+        HPEN oldPen = (HPEN)SelectObject(memDC, pen);
+        MoveToEx(memDC, r.left, r.top, NULL);
+        LineTo(memDC, r.right, r.top);
+        LineTo(memDC, r.right, r.bottom);
+        LineTo(memDC, r.left, r.bottom);
+        LineTo(memDC, r.left, r.top);
+        SelectObject(memDC, oldPen);
+        DeleteObject(pen);
+
+        SetTextColor(memDC, (i >= 5) ? RGB(255, 100, 100) : CLR_TEXT);
+        DrawTextW(memDC, dayHeaders[i], -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    startY += 30;
+
+    int firstDow = DayOfWeek(1, month, year);
+    int daysInMonth = DaysInMonth(month, year);
+
+    int row = 0, col = firstDow;
+
+    for (int day = 1; day <= daysInMonth; day++) {
+        SmjenaType smjena = GetSmjena(day, month, year);
+        COLORREF smjColor = GetSmjenaColor(smjena);
+        bool today = IsToday(day, month, year);
+        bool weekend = (col >= 5);
+
+        RECT cellRect;
+        cellRect.left = startX + col * cellW;
+        cellRect.top = startY + row * cellH;
+        cellRect.right = cellRect.left + cellW;
+        cellRect.bottom = cellRect.top + cellH;
+
+        // Pozadina ćelije
+        COLORREF bgColor = weekend ? CLR_WEEKEND : CLR_CELL_BG;
+        HBRUSH cellBrush = CreateSolidBrush(bgColor);
+        FillRect(memDC, &cellRect, cellBrush);
+        DeleteObject(cellBrush);
+
+        // Smjena traka na dnu
+        RECT smjRect;
+        smjRect.left = cellRect.left + 3;
+        smjRect.top = cellRect.bottom - 22;
+        smjRect.right = cellRect.right - 3;
+        smjRect.bottom = cellRect.bottom - 3;
+
+        // Zaobljeni pravougaonik za smjenu
+        HBRUSH smjBrush = CreateSolidBrush(smjColor);
+        HPEN smjPen = CreatePen(PS_SOLID, 1, smjColor);
+        HPEN oldP2 = (HPEN)SelectObject(memDC, smjPen);
+        HBRUSH oldB2 = (HBRUSH)SelectObject(memDC, smjBrush);
+        RoundRect(memDC, smjRect.left, smjRect.top, smjRect.right, smjRect.bottom, 6, 6);
+        SelectObject(memDC, oldP2);
+        SelectObject(memDC, oldB2);
+        DeleteObject(smjBrush);
+        DeleteObject(smjPen);
+
+        // Tekst smjene
+        SelectObject(memDC, hFontSmall);
+        SetTextColor(memDC, RGB(255, 255, 255));
+        DrawTextW(memDC, GetSmjenaName(smjena), -1, &smjRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        // Broj dana
+        wchar_t dayStr[8];
+        swprintf(dayStr, 8, L"%d", day);
+        RECT dayRect = cellRect;
+        dayRect.top += 4;
+        dayRect.bottom = smjRect.top;
+
+        if (today) {
+            // Krug oko broja za danas
+            int cx = (dayRect.left + dayRect.right) / 2;
+            int cy = (dayRect.top + dayRect.bottom) / 2;
+            HBRUSH todayBrush = CreateSolidBrush(CLR_TODAY);
+            HPEN todayPen = CreatePen(PS_SOLID, 2, CLR_TODAY);
+            HPEN oldP3 = (HPEN)SelectObject(memDC, todayPen);
+            HBRUSH oldB3 = (HBRUSH)SelectObject(memDC, todayBrush);
+            Ellipse(memDC, cx - 15, cy - 13, cx + 15, cy + 13);
+            SelectObject(memDC, oldP3);
+            SelectObject(memDC, oldB3);
+            DeleteObject(todayBrush);
+            DeleteObject(todayPen);
+
+            SelectObject(memDC, hFontBig);
+            SetTextColor(memDC, RGB(0, 0, 0));
+        } else {
+            SelectObject(memDC, hFontBig);
+            SetTextColor(memDC, weekend ? RGB(255, 150, 150) : CLR_TEXT);
+        }
+        DrawTextW(memDC, dayStr, -1, &dayRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        // Okvir ćelije
+        HPEN borderPen = CreatePen(PS_SOLID, 1,
+            today ? CLR_TODAY : RGB(70, 70, 70));
+        HPEN oldP4 = (HPEN)SelectObject(memDC, borderPen);
+        HBRUSH nullBrush = (HBRUSH)GetStockObject(NULL_BRUSH);
+        HBRUSH oldB4 = (HBRUSH)SelectObject(memDC, nullBrush);
+
+        if (today) {
+            // Deblji okvir za danas
+            HPEN todayBorderPen = CreatePen(PS_SOLID, 3, CLR_TODAY);
+            SelectObject(memDC, todayBorderPen);
+            Rectangle(memDC, cellRect.left, cellRect.top, cellRect.right, cellRect.bottom);
+            SelectObject(memDC, oldP4);
+            DeleteObject(todayBorderPen);
+        } else {
+            Rectangle(memDC, cellRect.left, cellRect.top, cellRect.right, cellRect.bottom);
+            SelectObject(memDC, oldP4);
+        }
+        SelectObject(memDC, oldB4);
+        DeleteObject(borderPen);
+
+        col++;
+        if (col >= 7) {
+            col = 0;
+            row++;
+        }
+    }
+
+    // Legenda na dnu
+    int legendY = startY + (row + (col > 0 ? 1 : 0)) * cellH + 15;
+
+    SelectObject(memDC, hFontBold);
+
+    struct LegendItem {
+        COLORREF color;
+        const wchar_t* text;
+    };
+    LegendItem legends[] = {
+        { CLR_NOCNA, L"  Noćna smjena  " },
+        { CLR_JUTARNJA, L"  Jutarnja smjena  " },
+        { CLR_SLOBODAN, L"  Slobodan dan  " },
+        { CLR_TODAY, L"  Danas  " }
+    };
+
+    int legendX = startX;
+    for (int i = 0; i < 4; i++) {
+        // Kvadratić boje
+        RECT lr;
+        lr.left = legendX;
+        lr.top = legendY;
+        lr.right = legendX + 18;
+        lr.bottom = legendY + 18;
+
+        HBRUSH lb = CreateSolidBrush(legends[i].color);
+        HPEN lp = CreatePen(PS_SOLID, 1, legends[i].color);
+        HPEN oldLP = (HPEN)SelectObject(memDC, lp);
+        HBRUSH oldLB = (HBRUSH)SelectObject(memDC, lb);
+        RoundRect(memDC, lr.left, lr.top, lr.right, lr.bottom, 4, 4);
+        SelectObject(memDC, oldLP);
+        SelectObject(memDC, oldLB);
+        DeleteObject(lb);
+        DeleteObject(lp);
+
+        // Tekst
+        SetTextColor(memDC, CLR_TEXT);
+        RECT tr;
+        tr.left = legendX + 22;
+        tr.top = legendY;
+        tr.right = tr.left + 200;
+        tr.bottom = legendY + 18;
+        DrawTextW(memDC, legends[i].text, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        SIZE sz;
+        GetTextExtentPoint32W(memDC, legends[i].text, (int)wcslen(legends[i].text), &sz);
+        legendX += 22 + sz.cx + 20;
+    }
+
+    // Copy to screen
+    BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
+
+    SelectObject(memDC, oldBitmap);
+    DeleteObject(memBitmap);
+    DeleteDC(memDC);
+
+    DeleteObject(hFont);
+    DeleteObject(hFontBold);
+    DeleteObject(hFontBig);
+    DeleteObject(hFontSmall);
+}
+
+void GoToToday() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    g_currentMonth = st.wMonth - 1;
+    g_currentYear = st.wYear;
+
+    SendMessageW(g_hMonthCombo, CB_SETCURSEL, g_currentMonth, 0);
+
+    // Nađi godinu u combo
+    for (int i = 0; i < 21; i++) {
+        if (2020 + i == g_currentYear) {
+            SendMessageW(g_hYearCombo, CB_SETCURSEL, i, 0);
+            break;
+        }
+    }
+}
+
+// ============================================================
+// WINDOW PROCEDURE
+// ============================================================
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        // Naslov sa mjesecom
+        HFONT hFontUI = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        HFONT hFontBoldUI = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0,
+            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+
+        // Prev button
+        g_hPrevBtn = CreateWindowW(L"BUTTON", L"◀ Prethodni",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            30, 15, 130, 35, hwnd, (HMENU)ID_PREV_BTN, g_hInst, NULL);
+        SendMessageW(g_hPrevBtn, WM_SETFONT, (WPARAM)hFontUI, TRUE);
+
+        // Month combo
+        g_hMonthCombo = CreateWindowW(L"COMBOBOX", NULL,
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            170, 18, 150, 300, hwnd, (HMENU)ID_MONTH_CMB, g_hInst, NULL);
+        SendMessageW(g_hMonthCombo, WM_SETFONT, (WPARAM)hFontBoldUI, TRUE);
+        for (int i = 0; i < 12; i++) {
+            SendMessageW(g_hMonthCombo, CB_ADDSTRING, 0, (LPARAM)monthNames[i]);
+        }
+        SendMessageW(g_hMonthCombo, CB_SETCURSEL, g_currentMonth, 0);
+
+        // Year combo
+        g_hYearCombo = CreateWindowW(L"COMBOBOX", NULL,
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            330, 18, 90, 300, hwnd, (HMENU)ID_YEAR_CMB, g_hInst, NULL);
+        SendMessageW(g_hYearCombo, WM_SETFONT, (WPARAM)hFontBoldUI, TRUE);
+        for (int y = 2020; y <= 2040; y++) {
+            wchar_t ystr[8];
+            swprintf(ystr, 8, L"%d", y);
+            SendMessageW(g_hYearCombo, CB_ADDSTRING, 0, (LPARAM)ystr);
+        }
+        // Set current year
+        SendMessageW(g_hYearCombo, CB_SETCURSEL, g_currentYear - 2020, 0);
+
+        // Next button
+        g_hNextBtn = CreateWindowW(L"BUTTON", L"Sljedeći ▶",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            430, 15, 130, 35, hwnd, (HMENU)ID_NEXT_BTN, g_hInst, NULL);
+        SendMessageW(g_hNextBtn, WM_SETFONT, (WPARAM)hFontUI, TRUE);
+
+        // Today button
+        g_hTodayBtn = CreateWindowW(L"BUTTON", L"📅 Danas",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            580, 15, 110, 35, hwnd, (HMENU)ID_TODAY_BTN, g_hInst, NULL);
+        SendMessageW(g_hTodayBtn, WM_SETFONT, (WPARAM)hFontUI, TRUE);
+
+        // Stats label
+        g_hStatsLabel = CreateWindowW(L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            30, 55, 750, 20, hwnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hStatsLabel, WM_SETFONT, (WPARAM)hFontUI, TRUE);
+
+        UpdateStats(hwnd);
+        break;
+    }
+
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        int notif = HIWORD(wParam);
+
+        if (id == ID_PREV_BTN) {
+            g_currentMonth--;
+            if (g_currentMonth < 0) {
+                g_currentMonth = 11;
+                g_currentYear--;
+            }
+            SendMessageW(g_hMonthCombo, CB_SETCURSEL, g_currentMonth, 0);
+            SendMessageW(g_hYearCombo, CB_SETCURSEL, g_currentYear - 2020, 0);
+            UpdateStats(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        else if (id == ID_NEXT_BTN) {
+            g_currentMonth++;
+            if (g_currentMonth > 11) {
+                g_currentMonth = 0;
+                g_currentYear++;
+            }
+            SendMessageW(g_hMonthCombo, CB_SETCURSEL, g_currentMonth, 0);
+            SendMessageW(g_hYearCombo, CB_SETCURSEL, g_currentYear - 2020, 0);
+            UpdateStats(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        else if (id == ID_TODAY_BTN) {
+            GoToToday();
+            UpdateStats(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        else if (id == ID_MONTH_CMB && notif == CBN_SELCHANGE) {
+            g_currentMonth = (int)SendMessageW(g_hMonthCombo, CB_GETCURSEL, 0, 0);
+            UpdateStats(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        else if (id == ID_YEAR_CMB && notif == CBN_SELCHANGE) {
+            int sel = (int)SendMessageW(g_hYearCombo, CB_GETCURSEL, 0, 0);
+            g_currentYear = 2020 + sel;
+            UpdateStats(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        break;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        DrawCalendar(hwnd, hdc);
+        EndPaint(hwnd, &ps);
+        break;
+    }
+
+    case WM_ERASEBKGND:
+        return 1; // Sprečava flicker
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetTextColor(hdcStatic, CLR_TEXT);
+        SetBkColor(hdcStatic, CLR_BG);
+        static HBRUSH hBrushStatic = CreateSolidBrush(CLR_BG);
+        return (LRESULT)hBrushStatic;
+    }
+
+    case WM_SIZE:
+        InvalidateRect(hwnd, NULL, TRUE);
+        break;
+
+    case WM_GETMINMAXINFO: {
+        MINMAXINFO* mmi = (MINMAXINFO*)lParam;
+        mmi->ptMinTrackSize.x = 800;
+        mmi->ptMinTrackSize.y = 650;
+        break;
+    }
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+
+    default:
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+// ============================================================
+// TOOLTIP za hover nad danima - MouseMove handling
+// ============================================================
+
+// Provjeri verifikaciju rasporeda za prvih 5 dana
+void VerifySchedule() {
+    // 01.02.2026 = Noćna  ✓
+    // 02.02.2026 = Slobodan ✓
+    // 03.02.2026 = Slobodan ✓
+    // 04.02.2026 = Jutarnja ✓
+    // 05.02.2026 = Noćna ✓
+    SmjenaType s1 = GetSmjena(1, 2, 2026);
+    SmjenaType s2 = GetSmjena(2, 2, 2026);
+    SmjenaType s3 = GetSmjena(3, 2, 2026);
+    SmjenaType s4 = GetSmjena(4, 2, 2026);
+    SmjenaType s5 = GetSmjena(5, 2, 2026);
+
+    bool ok = (s1 == NOCNA_SMJENA || s1 == NOCNA_SMJENA_2) &&
+              (s2 == SLOBODAN_1 || s2 == SLOBODAN_2) &&
+              (s3 == SLOBODAN_1 || s3 == SLOBODAN_2) &&
+              (s4 == JUTARNJA_SMJENA) &&
+              (s5 == NOCNA_SMJENA || s5 == NOCNA_SMJENA_2);
+
+    if (!ok) {
+        MessageBoxW(NULL, L"GREŠKA: Raspored se ne poklapa sa zadanim!", L"Greška", MB_OK | MB_ICONERROR);
+    }
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
+    g_hInst = hInstance;
+
+    // Inicijalizuj na trenutni mjesec
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    g_currentMonth = st.wMonth - 1;
+    g_currentYear = st.wYear;
+
+    // Verifikuj raspored
+    VerifySchedule();
+
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(icex);
+    icex.dwICC = ICC_STANDARD_CLASSES;
+    InitCommonControlsEx(&icex);
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = CreateSolidBrush(CLR_BG);
+    wc.lpszClassName = L"SmjeneKalendarClass";
+    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+
+    RegisterClassExW(&wc);
+
+    g_hMainWnd = CreateWindowExW(
+        0, L"SmjeneKalendarClass",
+        L"📅 Raspored Smjena - Kalendar",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        850, 700,
+        NULL, NULL, hInstance, NULL
+    );
+
+    ShowWindow(g_hMainWnd, nCmdShow);
+    UpdateWindow(g_hMainWnd);
+
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return (int)msg.wParam;
+}
